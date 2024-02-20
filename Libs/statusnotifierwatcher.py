@@ -1,28 +1,13 @@
 #!/usr/bin/env python
 
 import logging
-# import argparse
 import sys
 import os
 import gi  # noqa: F401
 from gi.repository import GLib
 from gi.repository import Gio
 
-# parser = argparse.ArgumentParser()
-# parser.add_argument("-v", action="store_true")
-# parser.add_argument("-vv", action="store_true")
-# args = parser.parse_args()
-# if args.v:
-#     logging.basicConfig(format="PyTray::watcher::%(levelname)s:%(message)s",
-#                         stream=sys.stderr, level="INFO")
-# elif args.vv:
-#     logging.basicConfig(format="PyTray::watcher:::%(levelname)s:%(message)s",
-#                         stream=sys.stderr, level="DEBUG")
-
 script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-f = open(script_dir + "/StatusNotifierWatcher.xml", "r")
-NODE_INFO = Gio.DBusNodeInfo.new_for_xml(f.read())
-f.close()
 
 
 class StatusNotifierWatcher:
@@ -40,11 +25,9 @@ class StatusNotifierWatcher:
         }
 
         if method == "Get" and params[1] in props:
-            logging.debug(sender + " called 'Get' on path " + path)
             invocation.return_value(GLib.Variant("(v)", [props[params[1]]]))
             conn.flush()
         elif method == "GetAll":
-            logging.debug(sender + " called 'GetAll' on path " + path)
             invocation.return_value(GLib.Variant("(a{sv})", [props]))
             conn.flush()
         elif method == "RegisterStatusNotifierItem":
@@ -53,7 +36,6 @@ class StatusNotifierWatcher:
                 item = (sender + "#" + params[0])
             else:
                 item = (sender + "#" + "/StatusNotifierItem")
-            logging.debug(sender + " called " + method + " on path " + path + ". params[0]: " + params[0])
             logging.info("Adding " + str(item) + " to managed items")
             self.add_item(item)
             logging.debug("Managed items:" + str(self._managed_items))
@@ -102,9 +84,10 @@ class StatusNotifierWatcher:
 
     def _on_bus_acquired(self, conn, name):
         self._conn = conn
-        interface = NODE_INFO.interfaces[0]
 
-        conn.register_object("/StatusNotifierWatcher", interface, self._on_method_call)
+        with open(script_dir + "/Resources/StatusNotifierWatcher.xml", "r") as f:
+            nodeinfo = Gio.DBusNodeInfo.new_for_xml(f.read())
+            conn.register_object("/StatusNotifierWatcher", nodeinfo.interfaces[0], self._on_method_call)
 
         conn.signal_subscribe(
                 None,  # Listen all senders
@@ -133,7 +116,6 @@ class StatusNotifierWatcher:
     def add_item(self, ipath):
         self._managed_items.append(ipath)
         signal_data = GLib.Variant("(s)", [ipath])
-        logging.debug("Emitting signal for add item")
         self._conn.emit_signal(
                 None,  # destination_bus_name
                 "/StatusNotifierWatcher",  # object_path
@@ -144,7 +126,6 @@ class StatusNotifierWatcher:
     def remove_item(self, ipath):
         if ipath in self._managed_items:
             signal_data = GLib.Variant("(s)", [ipath])
-            logging.debug("Emitting signal for remove item")
             self._conn.emit_signal(
                     None,  # destination_bus_name
                     "/StatusNotifierWatcher",  # object_path

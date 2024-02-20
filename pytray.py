@@ -5,13 +5,15 @@ import logging
 import os
 import sys
 import time
-from statusnotifierwatcher import StatusNotifierWatcher
+from Libs.statusnotifierwatcher import StatusNotifierWatcher
 import gi
-gi.require_version("Dbusmenu", "0.4")
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib  # noqa: E402
 from gi.repository import Gio  # noqa: E402
 from gi.repository import Gtk  # noqa: E402
+from gi.repository import GdkPixbuf  # noqa: E402
+from gi.repository import Gdk  # noqa: E402
+from gi.repository import GObject  # noqa E402
 
 
 parser = argparse.ArgumentParser()
@@ -24,29 +26,38 @@ if args.v:
 elif args.vv:
     logging.basicConfig(format="PyTray::%(module)s::%(levelname)s:%(message)s",
                         stream=sys.stderr, level="DEBUG")
+else:
+    logging.basicConfig(format="PyTray::%(module)s::%(levelname)s:%(message)s",
+                        stream=sys.stderr, level="WARNING")
 
 script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-f = open(script_dir + "/StatusNotifierItem.xml", "r")
-sninode = Gio.DBusNodeInfo.new_for_xml(f.read())
-f.close()
-f = open(script_dir + "/StatusNotifierWatcher.xml", "r")
-snwnode = Gio.DBusNodeInfo.new_for_xml(f.read())
-f.close()
+
+
+# def load_css(app):
+#     provider = Gtk.CssProvider.new()
+#     provider.load_from_path(script_dir + "/Resources/style.css")
+#    
+#     Gtk.StyleContext.add_provider_for_display(
+#         Gdk.Display.get_default(),
+#         provider,
+#         Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
 class Pytray(Gtk.Application):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.connect("activate", self._on_activate)
+        # self.connect("startup", load_css)
 
     def _on_activate(self, app):
-        self.win = MainWindow(application=app)
-        self.win.present()
+        self.window = MainWindow(application=app)
+        self.window.present()
 
 
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.set_name("window")
         self.set_title("pytray")
         self.items = []
         self.set_startup_id = "pytray"
@@ -57,14 +68,16 @@ class MainWindow(Gtk.ApplicationWindow):
         self.box.set_vexpand(True)
         self.box.set_hexpand(True)
         self.set_child(self.box)
-        self.present()
 
-    def add_item(self, icon):
-        logging.debug(f"Adding {icon.busname} to box")
-        icon.set_vexpand(True)
-        icon.set_hexpand(True)
-        self.items.append(icon)
-        self.box.append(icon)
+    def add_item(self, newitem):
+        for item in self.items:
+            if item.busname == newitem.busname:
+                return
+        logging.debug(f"Adding {newitem.busname} to box")
+        newitem.set_vexpand(True)
+        newitem.set_hexpand(True)
+        self.items.append(newitem)
+        self.box.append(newitem)
 
     def remove_item(self, dbuspath):
         for item in self.items:
@@ -74,11 +87,64 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.items.remove(item)
 
 
-def icon_from_name(viconname):
-    iconname = viconname.get_string()
-    icon = Gtk.Image.new_from_icon_name(iconname)
-    icon.set_pixel_size(24)
-    return icon
+def argb_to_rgba(icon_bytes):
+    arr = icon_bytes
+    for i in range(0, len(arr), 4):
+        arr[i: i + 4] = arr[i: i + 4][::-1]
+
+    return arr
+
+
+def pixmap_to_image(pixmap):
+    width, height, argb = pixmap.unpack()[0]
+    rgba = argb_to_rgba(argb)
+
+    size = len(rgba)
+    padding = size / width - 4 * width
+    rowstride = 4 * width + padding
+
+    gbytes = GLib.Bytes.new(argb)
+    pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
+            gbytes,
+            GdkPixbuf.Colorspace.RGB,
+            True,
+            8,
+            width,
+            height,
+            rowstride)
+    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+
+    image = Gtk.Image.new_from_paintable(texture)
+
+    return (width, height, image)
+
+
+def find_icon(item, proxy):
+    icon = proxy.get_cached_property("IconName")
+    overlayicon = proxy.get_cached_property("OverlayIconName")
+    attentionicon = proxy.get_cached_property("AttentionIconName")
+    iconpix = proxy.get_cached_property("IconPixmap")
+    overlaypix = proxy.get_cached_property("OverlayIconPixmap")
+    attentionpix = proxy.get_cached_property("AttentionIconPixmap")
+    if icon:
+        sicon = icon.get_string()
+        logging.debug("Iconfinder returned icon")
+        image = Gtk.Image.new_from_icon_name(sicon)
+        return image
+    # elif attentionicon:
+    #     logging.debug("Iconfinder returned attentionicon")
+    #     return attentionicon
+    elif iconpix:
+        logging.debug("Iconfinder returned pixmap")
+        image = pixmap_to_image(iconpix)[2]
+
+        return image
+    # elif attentionpix:
+    #     logging.debug("Iconfinder returned attentionpixmap")
+    #     return attentionpix
+    else:
+        return item.icon
+        logging.warning(f"No icon found for {proxy.dbuspath}")
 
 
 def actionbuilder(menu, proxy):
@@ -111,16 +177,21 @@ class TrayItem(Gtk.MenuButton):
     def __init__(self, dbusname, dbusobj):
         super().__init__()
         self.busname = dbusname
+        self.menuproxy = None
+        print(self.get_child())
+        print(self.get_css_classes())
 
-        Gio.DBusProxy.new_for_bus(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.NONE,
-                sninode.interfaces[0],
-                dbusname,
-                dbusobj,
-                "org.kde.StatusNotifierItem",
-                None,
-                self.on_proxy_ready)
+        with open(script_dir + "/Resources/StatusNotifierItem.xml", "r") as f:
+            nodeinfo = Gio.DBusNodeInfo.new_for_xml(f.read())
+            Gio.DBusProxy.new_for_bus(
+                    Gio.BusType.SESSION,
+                    Gio.DBusProxyFlags.NONE,
+                    nodeinfo.interfaces[0],
+                    dbusname,
+                    dbusobj,
+                    "org.kde.StatusNotifierItem",
+                    None,
+                    self.on_proxy_ready)
 
     def on_menu_ready(self, obj, token):
         proxy = obj.new_for_bus_finish(token)
@@ -133,6 +204,7 @@ class TrayItem(Gtk.MenuButton):
         menuitems = layout[2]  # [(id, {"label": "somelabel"}, []), (id, {"label": "somelabel"}, []), ...]
         lst = []
         for item in menuitems:
+            # item[2] == submenu ???
             if "label" in item[1].keys():
                 lst.append((item[0], item[1]["label"]))
         self.actions = actionbuilder(lst, proxy)
@@ -146,28 +218,30 @@ class TrayItem(Gtk.MenuButton):
 
     def on_proxy_ready(self, obj, token):
         proxy = obj.new_for_bus_finish(token)
-        self.icon = icon_from_name(proxy.get_cached_property("IconName"))
+        self.icon = find_icon(self, proxy)
         self.set_child(self.icon)
         self.menupath = proxy.get_cached_property("Menu").get_string()
-        Gio.DBusProxy.new_for_bus(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.NONE,
-                None,
-                self.busname,
-                self.menupath,
-                "com.canonical.dbusmenu",
-                None,
-                self.on_menu_ready)
+        if not self.menupath.startswith(("/org/ayatana/NotificationItem", "/MenuBar", "/com/canonical/dbusmenu")):
+            logging.warning(f"unknown dbusmenupath {self.menupath}")
+            return
+        with open(script_dir + "/Resources/DBusMenu.xml", "r") as f:
+            nodeinfo = Gio.DBusNodeInfo.new_for_xml(f.read())
+            Gio.DBusProxy.new_for_bus(
+                    Gio.BusType.SESSION,
+                    Gio.DBusProxyFlags.NONE,
+                    nodeinfo.interfaces[0],
+                    self.busname,
+                    self.menupath,
+                    "com.canonical.dbusmenu",
+                    None,
+                    self.on_menu_ready)
         proxy.connect("g-signal", self.on_signal)
-        # proxy.connect("g-properties-changed", self.on_properties_changed)
         self.proxy = proxy
 
     def on_signal(self, proxy, sender, signal, params, userdata=None):
         if signal == "NewIcon":
-            self.icon = icon_from_name(self.proxy.get_cached_property("IconName"))
+            self.icon = find_icon(self, proxy)
             self.set_child(self.icon)
-
-    # def on_properties_changed(self, proxy, changed_props, inval_props, userdata=None):
 
 
 class StatusNotifierHost:
@@ -179,11 +253,11 @@ class StatusNotifierHost:
             dbuspath = params[0].split("#")[0]
             dbusobj = params[0].split("#")[1]
             titem = TrayItem(dbuspath, dbusobj)
-            app.win.add_item(titem)
+            app.window.add_item(titem)
 
         elif signal == "StatusNotifierItemUnregistered":
             dbuspath = params[0].split("#")[0]
-            app.win.remove_item(dbuspath)
+            app.window.remove_item(dbuspath)
 
     def on_proxy_acquired(self, conn, res):
         proxy = conn.new_for_bus_finish(res)
@@ -192,19 +266,27 @@ class StatusNotifierHost:
                 GLib.Variant.new_tuple(GLib.Variant.new_string("org.vetu104.Pytray")),
                 Gio.DBusCallFlags.NONE,
                 -1)
+        vnewitems = proxy.get_cached_property("RegisteredStatusNotifierItems")
+        newitems = vnewitems.unpack()
+        for item in newitems:
+            dbuspath, dbusobj = item.split("#")
+            titem = TrayItem(dbuspath, dbusobj)
+            app.window.add_item(titem)
         proxy.connect("g-signal", self.on_signal)
         self.proxy = proxy
 
     def start(self):
-        Gio.DBusProxy.new_for_bus(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.NONE,
-                snwnode.interfaces[0],
-                "org.kde.StatusNotifierWatcher",
-                "/StatusNotifierWatcher",
-                "org.kde.StatusNotifierWatcher",
-                None,
-                self.on_proxy_acquired)
+        with open(script_dir + "/Resources/StatusNotifierWatcher.xml", "r") as f:
+            nodeinfo = Gio.DBusNodeInfo.new_for_xml(f.read())
+            Gio.DBusProxy.new_for_bus(
+                    Gio.BusType.SESSION,
+                    Gio.DBusProxyFlags.NONE,
+                    nodeinfo.interfaces[0],
+                    "org.kde.StatusNotifierWatcher",
+                    "/StatusNotifierWatcher",
+                    "org.kde.StatusNotifierWatcher",
+                    None,
+                    self.on_proxy_acquired)
 
 
 if __name__ == "__main__":

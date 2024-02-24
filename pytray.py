@@ -101,11 +101,12 @@ class TrayItem(Gtk.Image):
         super().__init__()
         self._sniproxy = None
         self._menuproxy = None
-
-        self._menulayout = None
-        self._menumodel = Gio.Menu.new()
-        self._popovermenu = None
         self.busname = busname
+
+        self._actiongroup = Gio.SimpleActionGroup.new()
+        self._menumodel = None
+        self._popovermenu = None
+        self._menulayout = None
 
         self._leftclick = Gtk.GestureClick.new()
         self._leftclick.connect("pressed", self._on_leftclick)
@@ -252,37 +253,48 @@ class TrayItem(Gtk.Image):
 
         self._menuproxy.connect("g-signal", self._on_menusignal)
 
-    def _on_menulayout_ready(self, obj, result):
-        self._menulayout = obj.call_finish(result)
-
-        self._update_menu()
-
     def _on_menusignal(self, proxy, sender, signal, params):
         if signal == "ItemsPropertiesUpdated" or signal == "LayoutUpdated":
+            self._menuproxy.call(
+                    "GetLayout",
+                    # parentid, depth(-1=all), props([]=all)
+                    GLib.Variant("(iias)", (0, -1, [])),
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None,
+                    self._on_menulayout_ready)
+
+    def _on_menulayout_ready(self, obj, result):
+        try:
+            self._menulayout = obj.call_finish(result)
             self._update_menu()
+        except gi.repository.GLib.GError:
+            pass
 
     def _update_menu(self):
-
         self._popovermenu = None
-        self._actiongroup = None
-        self._popovermenu = Gtk.PopoverMenu()
-        self._popovermenu.set_has_arrow(False)
-        self._actiongroup = Gio.SimpleActionGroup.new()
-
+        self._menumodel = None
+        self._menumodel = Gio.Menu.new()
         self._menurevision, menuprops = self._menulayout
         rootid, _, rootprops = menuprops
         for item in rootprops:
             if ("visible" in item[1].keys()) and (item[1]["visible"] is False):
                 continue
 
+            if ("enabled" in item[1].keys()) and (item[1]["enabled"] is False):
+                continue
+
             if "label" in item[1].keys():
                 self._menumodel.append(item[1]["label"], f"menuclick.{item[0]}")
                 action = self._createaction(item)
-                self._actiongroup.add_action(action)
+                if self._actiongroup.lookup_action(str(item[0])) is None:
+                    self._actiongroup.add_action(action)
+
+        self._popovermenu = Gtk.PopoverMenu.new_from_model(self._menumodel)
+        self._popovermenu.set_has_arrow(False)
+        self._popovermenu.set_parent(self)
 
         self.insert_action_group("menuclick", self._actiongroup)
-        self._popovermenu.set_menu_model(self._menumodel)
-        self._popovermenu.set_parent(self)
 
     def _createaction(self, item):
         action = Gio.SimpleAction.new(str(item[0]))

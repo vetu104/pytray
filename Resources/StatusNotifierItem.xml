@@ -2,8 +2,9 @@
 <!--
 SPDX-FileCopyrightText: © 2024 vetu104
 SPDX-License-Identifier: LGPL-2.0-or-later
--->
 
+Modified version of https://invent.kde.org/frameworks/kstatusnotifieritem/-/blob/master/src/org.kde.StatusNotifierItem.xml
+-->
 <node>
     <interface name="org.kde.StatusNotifierItem">
 

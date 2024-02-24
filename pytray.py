@@ -30,7 +30,7 @@ else:
     logging.basicConfig(format="PyTray::%(module)s::%(levelname)s:%(message)s",
                         stream=sys.stderr, level="WARNING")
 
-script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+script_dir = os.path.dirname(os.path.realpath(__file__))
 resources_dir = f"{script_dir}/Resources"
 
 

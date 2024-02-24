@@ -2,6 +2,8 @@
 <!--
 SPDX-FileCopyrightText: © 2024 vetu104
 SPDX-License-Identifier: LGPL-2.1
+
+Modified version of https://github.com/AyatanaIndicators/libdbusmenu/blob/master/libdbusmenu-glib/dbus-menu.xml
 -->
 <node>
 	<interface name="com.canonical.dbusmenu">

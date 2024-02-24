@@ -3,11 +3,13 @@
 import logging
 import sys
 import os
+from pathlib import Path
 import gi  # noqa: F401
 from gi.repository import GLib
 from gi.repository import Gio
 
-script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+path = Path(os.path.dirname(os.path.realpath(__file__)))
+script_dir = str(path.parent.absolute())
 
 
 class StatusNotifierWatcher:

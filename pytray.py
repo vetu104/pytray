@@ -34,19 +34,12 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 resources_dir = f"{script_dir}/Resources"
 
 
-# def load_css(app):
-#     provider = Gtk.CssProvider.new()
-#     provider.load_from_path(script_dir + "/Resources/style.css")
-#
-#     Gtk.StyleContext.add_provider_for_display(
-#         Gdk.Display.get_default(),
-#         provider,
-#         Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-
-
 class Pytray(Gtk.Application):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Most icons are light and not visible against the background in a light theme
+        gtksettings = Gtk.Settings.get_default()
+        gtksettings.set_property("gtk-application-prefer-dark-theme", True)
         self.connect("activate", self._on_activate)
         # self.connect("startup", load_css)
 
@@ -203,9 +196,10 @@ class TrayItem(Gtk.Image):
         if iconname:
             self._texture = None
             self._iconname = iconname.get_string()
-            self._themepath = icon_theme_path.get_string()
-            theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-            theme.add_search_path(self._themepath)
+            if icon_theme_path:
+                self._themepath = icon_theme_path.get_string()
+                theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+                theme.add_search_path(self._themepath)
 
             self.set_from_icon_name(self._iconname)
         # elif attentionicon:

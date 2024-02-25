@@ -194,14 +194,18 @@ class TrayItem(Gtk.Image):
 
     def _find_icon(self):
         iconname = self._sniproxy.get_cached_property("IconName")
+        icon_theme_path = self._sniproxy.get_cached_property("IconThemePath")
         # overlayicon = proxy.get_cached_property("OverlayIconName")
         # attentionicon = proxy.get_cached_property("AttentionIconName")
         iconpix = self._sniproxy.get_cached_property("IconPixmap")
         # overlaypix = proxy.get_cached_property("OverlayIconPixmap")
         # attentionpix = proxy.get_cached_property("AttentionIconPixmap")
         if iconname:
-            self._iconname = iconname.get_string()
             self._texture = None
+            self._iconname = iconname.get_string()
+            self._themepath = icon_theme_path.get_string()
+            theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+            theme.add_search_path(self._themepath)
 
             self.set_from_icon_name(self._iconname)
         # elif attentionicon:

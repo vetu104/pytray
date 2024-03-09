@@ -84,7 +84,10 @@ class MainWindow(Gtk.ApplicationWindow):
 def argb_to_rgba(icon_bytes):
     arr = icon_bytes
     for i in range(0, len(arr), 4):
-        arr[i: i + 4] = arr[i: i + 4][::-1]
+        pixel = arr[i: i + 4]
+        order = [1, 2, 3, 0]
+        newpixel = [pixel[j] for j in order]
+        arr[i: i + 4] = newpixel
 
     return arr
 
